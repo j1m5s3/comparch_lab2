@@ -1,18 +1,21 @@
+/* Computer Architecture and Design -- Lab 2
+ * Etienne Buhrle, James Lynch
+ */
+
 #include <stdio.h>
 #include "shell.h"
 
+/* Constants used for instruction matching */
 #define OPCODE_MASK 0xFC000000
 #define FUNCT_MASK  0x0000003F
 #define OPCODE_SLL  26
 #define FUNCT_SLL   0
 
-/************ Instruction Representation ************/
+/************ Current instruction register ************/
 union {
+  /* Raw instruction code */
   uint32_t code;
-  struct {
-    unsigned int rest: 26;
-    unsigned int opcode: 6;
-  };
+  /* R-Format */
   struct {
     unsigned int funct: 6;
     unsigned int shamt: 5;
@@ -21,23 +24,25 @@ union {
     unsigned int rs: 5;
     unsigned int opcode: 6;
   } RFMT;
+  /* I-Format */
   struct {
-    unsigned int imm: 16;
+    int imm: 16;
     unsigned int rt: 5;
     unsigned int rs: 5;
     unsigned int opcode: 6;
   } IFMT;
+  /* J-Format */
   struct {
     unsigned int address: 26;
     unsigned int opcode: 6;
   } JFMT;
 } current_instruction;
 
-/************** Instruction Record Helper Types ****************/
+/************** Instruction Table Helper Types ****************/
 /* Execute Function Format */
 typedef void (*execute_fct_t)(void);
 
-/* Record Format */
+/* Table Row Format */
 typedef struct {
   uint32_t pattern;
   uint32_t mask;
@@ -68,30 +73,30 @@ void advance_pc(uint32_t offset) {
   NEXT_STATE.PC += offset;
 }
 
-/*************** Functions *****************************/
+/*************** Instructions **************************/
 /*************** R-Format ******************************/
 void add(void) {
   int32_t rt = read_register_32(current_instruction.RFMT.rt);
   int32_t rs = read_register_32(current_instruction.RFMT.rs);
-  write_register_32(current_instruction.RFMT.rd, rt + rs);
+  write_register_32(current_instruction.RFMT.rd, rs + rt);
 }
 
 void addu(void) {
   uint32_t rt = read_register_32(current_instruction.RFMT.rt);
   uint32_t rs = read_register_32(current_instruction.RFMT.rs);
-  write_register_32(current_instruction.RFMT.rd, rt + rs);
+  write_register_32(current_instruction.RFMT.rd, rs + rt);
 }
 
 void sub(void) {
   int32_t rt = read_register_32(current_instruction.RFMT.rt);
   int32_t rs = read_register_32(current_instruction.RFMT.rs);
-  write_register_32(current_instruction.RFMT.rd, rt - rs);
+  write_register_32(current_instruction.RFMT.rd, rs - rt);
 }
 
 void subu(void) {
   uint32_t rt = read_register_32(current_instruction.RFMT.rt);
   uint32_t rs = read_register_32(current_instruction.RFMT.rs);
-  write_register_32(current_instruction.RFMT.rd, rt - rs);
+  write_register_32(current_instruction.RFMT.rd, rs - rt);
 }
 
 void jr(void) {
@@ -111,7 +116,7 @@ void lui(void) {
 
 void ori(void) {
   uint32_t rs = read_register_32(current_instruction.IFMT.rs);
-  uint32_t result = rs | current_instruction.IFMT.imm;
+  uint32_t result = rs | ((uint16_t) current_instruction.IFMT.imm); // no sign extension
   write_register_32(current_instruction.IFMT.rt, result);
 }
 
@@ -123,19 +128,19 @@ void addi(void) {
 
 void addiu(void) {
   uint32_t rs = read_register_32(current_instruction.IFMT.rs);
-  uint32_t result = rs | current_instruction.IFMT.imm;
+  uint32_t result = rs + current_instruction.IFMT.imm;
   write_register_32(current_instruction.IFMT.rt, result);
 }
 
 void lw(void) {
-  uint32_t rs = read_register_32(current_instruction.IFMT.rs);
+  uint32_t rs = read_register_32(current_instruction.IFMT.rs) + current_instruction.IFMT.imm;
   uint32_t result = mem_read_32(rs);
   write_register_32(current_instruction.IFMT.rt, result);
 }
 
 void sw(void) {
+  uint32_t rs = read_register_32(current_instruction.IFMT.rs) + current_instruction.IFMT.imm;
   uint32_t rt = read_register_32(current_instruction.IFMT.rt);
-  uint32_t rs = read_register_32(current_instruction.IFMT.rs);
   mem_write_32(rs, rt);
 }
 
@@ -143,7 +148,7 @@ void bne(void) {
   uint32_t rt = read_register_32(current_instruction.IFMT.rt);
   uint32_t rs = read_register_32(current_instruction.IFMT.rs);
   if (rs != rt) {
-    advance_pc((current_instruction.IFMT.imm - 1) << 2);
+    advance_pc(current_instruction.IFMT.imm << 2);
   }
 }
 
@@ -151,19 +156,19 @@ void beq(void) {
   uint32_t rt = read_register_32(current_instruction.IFMT.rt);
   uint32_t rs = read_register_32(current_instruction.IFMT.rs);
   if (rs == rt) {
-    advance_pc((current_instruction.IFMT.imm - 1) << 2);
+    advance_pc(current_instruction.IFMT.imm << 2);
   }
 }
 
 void bgtz(void) {
-  uint32_t rs = read_register_32(current_instruction.IFMT.rs);
+  int32_t rs = read_register_32(current_instruction.IFMT.rs);
   if (rs > 0) {
-    advance_pc((current_instruction.IFMT.imm - 1) << 2);
+    advance_pc(current_instruction.IFMT.imm  << 2);
   }
 }
 
 void slti(void) {
-  uint32_t rs = read_register_32(current_instruction.IFMT.rs);
+  int32_t rs = read_register_32(current_instruction.IFMT.rs);
   if (rs < current_instruction.IFMT.imm) {
     write_register_32(current_instruction.IFMT.rt, 1);
   } else {
@@ -172,15 +177,17 @@ void slti(void) {
 }
 
 void lb(void) {
-  uint32_t rs = read_register_32(current_instruction.IFMT.rs);
-  write_register_32(current_instruction.IFMT.rt, (mem_read_32(rs) & 0x000000FF));
+  /* Get only 8 bits from the given address */
+  uint32_t rs = read_register_32(current_instruction.IFMT.rs) + current_instruction.IFMT.imm;
+  write_register_32(current_instruction.IFMT.rt, (int8_t) mem_read_32(rs)); // do sign extension
 }
 
 void sb(void) {
-  uint32_t rs = read_register_32(current_instruction.IFMT.rs);
+  /* Modify only the 8 bits at the given address */
+  uint32_t rs = read_register_32(current_instruction.IFMT.rs) + current_instruction.IFMT.imm;
   uint32_t rt = read_register_32(current_instruction.IFMT.rt);
   uint32_t current_mem_content = mem_read_32(rs);
-  mem_write_32(rs, (current_mem_content & 0xFFFFFF00) | (rt & 0x000000FF));
+  mem_write_32(rs, (current_mem_content & 0xFFFFFF00) | (rt & 0x000000FF)); // change only LSB
 }
 
 /*************** J-Format ******************************/
@@ -195,11 +202,12 @@ void jal(void) {
 
 /*************** Other *********************************/
 void halt(void) {
+  /* Stop the simulator */
   RUN_BIT = 0;
 }
 
 /*************** Execution Pointer *********************/
-execute_fct_t instruction_execution = &halt;
+execute_fct_t instruction_execution = NULL;
 
 /*************** Function Records **********************/
 opcode_record_t INSTRUCTION_RECORD[] = {
@@ -232,15 +240,16 @@ int num_commands(void) {
 void fetch()
 {
   current_instruction.code = mem_read_32(CURRENT_STATE.PC);
-  NEXT_STATE.PC = CURRENT_STATE.PC + 4;
 }
 
 void decode()
 {
-  instruction_execution = &halt;
+  instruction_execution = &halt; /* Default to stopping the simulator  */
   for (int i = 0; i < num_commands(); i++) {
     if ((current_instruction.code & INSTRUCTION_RECORD[i].mask) == INSTRUCTION_RECORD[i].pattern) {
       instruction_execution = INSTRUCTION_RECORD[i].instruction_function;
+      /* Instruction recognized. Increment program counter. */
+      NEXT_STATE.PC = CURRENT_STATE.PC + 4;
     }
   }
 }
