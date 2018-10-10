@@ -99,6 +99,26 @@ void subu(void) {
   write_register_32(current_instruction.RFMT.rd, rs - rt);
 }
 
+void slt(void) {
+  int32_t rt = read_register_32(current_instruction.RFMT.rt);
+  int32_t rs = read_register_32(current_instruction.RFMT.rs);
+  if (rs < rt) {
+    write_register_32(current_instruction.RFMT.rd, 1);
+  } else {
+    write_register_32(current_instruction.RFMT.rd, 0);
+  }
+}
+
+void sltu(void) {
+  uint32_t rt = read_register_32(current_instruction.RFMT.rt);
+  uint32_t rs = read_register_32(current_instruction.RFMT.rs);
+  if (rs < rt) {
+    write_register_32(current_instruction.RFMT.rd, 1);
+  } else {
+    write_register_32(current_instruction.RFMT.rd, 0);
+  }
+}
+
 void jr(void) {
   uint32_t rs = read_register_32(current_instruction.IFMT.rs);
   NEXT_STATE.PC = rs;
@@ -176,6 +196,15 @@ void slti(void) {
   }
 }
 
+void sltiu(void) {
+  uint32_t rs = read_register_32(current_instruction.IFMT.rs);
+  if (rs < ((uint16_t) current_instruction.IFMT.imm)) {
+    write_register_32(current_instruction.IFMT.rt, 1);
+  } else {
+    write_register_32(current_instruction.IFMT.rt, 0);
+  }
+}
+
 void lb(void) {
   /* Get only 8 bits from the given address */
   uint32_t rs = read_register_32(current_instruction.IFMT.rs) + current_instruction.IFMT.imm;
@@ -215,6 +244,8 @@ opcode_record_t INSTRUCTION_RECORD[] = {
   {(0x00 << OPCODE_SLL) | (0x21 << FUNCT_SLL), OPCODE_MASK | FUNCT_MASK, &addu},
   {(0x00 << OPCODE_SLL) | (0x22 << FUNCT_SLL), OPCODE_MASK | FUNCT_MASK, &sub},
   {(0x00 << OPCODE_SLL) | (0x23 << FUNCT_SLL), OPCODE_MASK | FUNCT_MASK, &subu},
+  {(0x00 << OPCODE_SLL) | (0x2A << FUNCT_SLL), OPCODE_MASK | FUNCT_MASK, &slt},
+  {(0x00 << OPCODE_SLL) | (0x2B << FUNCT_SLL), OPCODE_MASK | FUNCT_MASK, &sltu},
   {(0x00 << OPCODE_SLL) | (0x08 << FUNCT_SLL), OPCODE_MASK | FUNCT_MASK, &jr},
   {0x0F << OPCODE_SLL, OPCODE_MASK, &lui},
   {0x0D << OPCODE_SLL, OPCODE_MASK, &ori},
@@ -226,6 +257,7 @@ opcode_record_t INSTRUCTION_RECORD[] = {
   {0x04 << OPCODE_SLL, OPCODE_MASK, &beq},
   {0x07 << OPCODE_SLL, OPCODE_MASK, &bgtz},
   {0x0A << OPCODE_SLL, OPCODE_MASK, &slti},
+  {0x0B << OPCODE_SLL, OPCODE_MASK, &sltiu},
   {0x02 << OPCODE_SLL, OPCODE_MASK, &j},
   {0x03 << OPCODE_SLL, OPCODE_MASK, &jal},
   {0x28 << OPCODE_SLL, OPCODE_MASK, &sb},
