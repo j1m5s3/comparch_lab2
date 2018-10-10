@@ -1,3 +1,3 @@
-li $8, 2
-li $9, 1
-sltu $10, $9, $8
+li $8, -1
+li $9, 2
+sltu $10, $9, $8 # $8 should overflow and therefore be greater than $9
