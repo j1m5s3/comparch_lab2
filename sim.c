@@ -10,6 +10,8 @@
 #define FUNCT_MASK  0x0000003F
 #define OPCODE_SLL  26
 #define FUNCT_SLL   0
+//#define UINT32_MAX  0xFFFFFFFF
+#define SIGN_BIT    0x80000000
 
 /************ Current instruction register ************/
 union {
@@ -69,8 +71,13 @@ uint32_t read_register_32(uint32_t reg_number) {
 }
 
 /*************** Program Counter Manipulation **********/
-void advance_pc(uint32_t offset) {
+void advance_pc(int32_t offset) {
   NEXT_STATE.PC += offset;
+}
+
+/*************** Sign bit information (overflow) *******/
+uint32_t is_signed(int32_t n) {
+  return (n & SIGN_BIT) == SIGN_BIT;
 }
 
 /*************** Instructions **************************/
@@ -78,24 +85,48 @@ void advance_pc(uint32_t offset) {
 void add(void) {
   int32_t rt = read_register_32(current_instruction.RFMT.rt);
   int32_t rs = read_register_32(current_instruction.RFMT.rs);
-  write_register_32(current_instruction.RFMT.rd, rs + rt);
+  int32_t result = rs + rt;
+  NEXT_STATE.FLAG_N = (result < 0);
+  NEXT_STATE.FLAG_V = (!is_signed(rs) && !is_signed(rt) && is_signed(result))
+    || (is_signed(rs) && is_signed(rt) && !is_signed(result));
+  NEXT_STATE.FLAG_C = (((uint32_t) rt) > (UINT32_MAX - ((uint32_t) rs)));
+  NEXT_STATE.FLAG_Z = (result == 0);
+  write_register_32(current_instruction.RFMT.rd, result);
 }
 
 void addu(void) {
   uint32_t rt = read_register_32(current_instruction.RFMT.rt);
   uint32_t rs = read_register_32(current_instruction.RFMT.rs);
-  write_register_32(current_instruction.RFMT.rd, rs + rt);
+  uint32_t result = rs + rt;
+  NEXT_STATE.FLAG_V = (!is_signed(rs) && !is_signed(rt) && is_signed(result))
+    || (is_signed(rs) && is_signed(rt) && !is_signed(result));
+  NEXT_STATE.FLAG_C = (((uint32_t) rt) > (UINT32_MAX - ((uint32_t) rs)));
+  NEXT_STATE.FLAG_N = (result < 0);
+  NEXT_STATE.FLAG_Z = (result == 0);
+  write_register_32(current_instruction.RFMT.rd, result);
 }
 
 void sub(void) {
   int32_t rt = read_register_32(current_instruction.RFMT.rt);
   int32_t rs = read_register_32(current_instruction.RFMT.rs);
-  write_register_32(current_instruction.RFMT.rd, rs - rt);
+  int32_t result = rs - rt;
+  NEXT_STATE.FLAG_N = (result < 0);
+  NEXT_STATE.FLAG_V = (!is_signed(rs) && is_signed(rt) && is_signed(result))
+    || (is_signed(rs) && !is_signed(rt) && !is_signed(result));
+  NEXT_STATE.FLAG_C = (((uint32_t) rt) > ((uint32_t) rs));
+  NEXT_STATE.FLAG_Z = (result == 0);
+  write_register_32(current_instruction.RFMT.rd, result);
 }
 
 void subu(void) {
   uint32_t rt = read_register_32(current_instruction.RFMT.rt);
   uint32_t rs = read_register_32(current_instruction.RFMT.rs);
+  uint32_t result = rs - rt;
+  NEXT_STATE.FLAG_N = (result < 0);
+  NEXT_STATE.FLAG_V = (!is_signed(rs) && is_signed(rt) && is_signed(result))
+    || (is_signed(rs) && !is_signed(rt) && !is_signed(result));
+  NEXT_STATE.FLAG_C = (((uint32_t) rt) > ((uint32_t) rs));
+  NEXT_STATE.FLAG_Z = (result == 0);
   write_register_32(current_instruction.RFMT.rd, rs - rt);
 }
 
@@ -143,12 +174,22 @@ void ori(void) {
 void addi(void) {
   int32_t rs = read_register_32(current_instruction.IFMT.rs);
   int32_t result = rs + current_instruction.IFMT.imm;
+  NEXT_STATE.FLAG_N = (result < 0);
+  NEXT_STATE.FLAG_V = (!is_signed(rs) && !is_signed(current_instruction.IFMT.imm) && is_signed(result))
+    || (is_signed(rs) && is_signed(current_instruction.IFMT.imm) && !is_signed(result));
+  NEXT_STATE.FLAG_C = (((uint32_t) current_instruction.IFMT.imm) > (UINT32_MAX - ((uint32_t) rs)));
+  NEXT_STATE.FLAG_Z = (result == 0);
   write_register_32(current_instruction.IFMT.rt, result);
 }
 
 void addiu(void) {
   uint32_t rs = read_register_32(current_instruction.IFMT.rs);
   uint32_t result = rs + current_instruction.IFMT.imm;
+  NEXT_STATE.FLAG_N = (result < 0);
+  NEXT_STATE.FLAG_V = (!is_signed(rs) && !is_signed(current_instruction.IFMT.imm) && is_signed(result))
+    || (is_signed(rs) && is_signed(current_instruction.IFMT.imm) && !is_signed(result));
+  NEXT_STATE.FLAG_C = (((uint32_t) current_instruction.IFMT.imm) > (UINT32_MAX - ((uint32_t) rs)));
+  NEXT_STATE.FLAG_Z = (result == 0);
   write_register_32(current_instruction.IFMT.rt, result);
 }
 
@@ -168,6 +209,7 @@ void bne(void) {
   uint32_t rt = read_register_32(current_instruction.IFMT.rt);
   uint32_t rs = read_register_32(current_instruction.IFMT.rs);
   if (rs != rt) {
+    NEXT_STATE.FLAG_Z = 0;
     advance_pc(current_instruction.IFMT.imm << 2);
   }
 }
@@ -176,6 +218,7 @@ void beq(void) {
   uint32_t rt = read_register_32(current_instruction.IFMT.rt);
   uint32_t rs = read_register_32(current_instruction.IFMT.rs);
   if (rs == rt) {
+    NEXT_STATE.FLAG_Z = 1;
     advance_pc(current_instruction.IFMT.imm << 2);
   }
 }
@@ -239,6 +282,7 @@ void halt(void) {
 execute_fct_t instruction_execution = NULL;
 
 /*************** Function Records **********************/
+/* Maps opcodes and function codes to to corresponding functions. */
 opcode_record_t INSTRUCTION_RECORD[] = {
   {(0x00 << OPCODE_SLL) | (0x20 << FUNCT_SLL), OPCODE_MASK | FUNCT_MASK, &add},
   {(0x00 << OPCODE_SLL) | (0x21 << FUNCT_SLL), OPCODE_MASK | FUNCT_MASK, &addu},
@@ -277,7 +321,7 @@ void fetch()
 void decode()
 {
   instruction_execution = &halt; /* Default to stopping the simulator  */
-  for (int i = 0; i < num_commands(); i++) {
+  for (int i = 0; i < num_commands(); i++) { /* Search for instruction in record */
     if ((current_instruction.code & INSTRUCTION_RECORD[i].mask) == INSTRUCTION_RECORD[i].pattern) {
       instruction_execution = INSTRUCTION_RECORD[i].instruction_function;
       /* Instruction recognized. Increment program counter. */

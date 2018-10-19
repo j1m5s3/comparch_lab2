@@ -12,6 +12,10 @@ def files_equal(path1, path2):
     file1 = open(path1).readlines()
     file2 = open(path2).readlines()
     
+    # dirty trick to turn off flags checking
+    file1 = file1[:-4]
+    file2 = file2[:-4]
+    
     if len(file1) != len(file2):
         return False
     
